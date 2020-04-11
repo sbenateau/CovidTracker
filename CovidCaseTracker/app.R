@@ -1,22 +1,25 @@
+# Application that get the data from french hospital 
+# get daily changes and plot results
+
 library(shiny)
 library (RCurl)
 library(tidyverse)
 library(lubridate)
 
-# Define UI for application that draws a histogram
+# Define UI for application
 ui <- fluidPage(
   
   # Application title
   titlePanel("Données covid-19"),
   
-  # Sidebar with a slider input for number of bins 
+  # Sidebar with a 3 select input
   sidebarLayout(
     sidebarPanel(
       selectInput("variable", "Choisissez la variable qui vous intéresse :", 
-                  choices=c("Nombre de décès",
-                            "Nombre de patients hospitalisés",
-                            "Nombre de patients en réanimation",
-                            "Nombre de retour à domicile"
+                  choices=c("nombre de décès",
+                            "nombre de patients hospitalisés",
+                            "nombre de patients en réanimation",
+                            "nombre de retour à domicile"
                   )
       ),
       selectInput("region", "Choisissez la région :", 
@@ -41,34 +44,32 @@ ui <- fluidPage(
 # Define server logic required to draw a histogram
 server <- function(input, output) {
   
+  # get data from data.gouv.fr
   dataCovidreact <- reactive({
     URLDataCovid <- getURL("https://www.data.gouv.fr/fr/datasets/r/63352e38-d353-4b54-bfd1-f1b3ee1cabd7")
-    
     URLDataCovid <- getURL(strsplit(URLDataCovid, '"')[[1]][4])
     dataCovid <- read.csv (text = URLDataCovid, sep = ";")
     
+    # remove data differanciating sexes
     dataCovid <- filter(dataCovid, sexe == 0)
     
+    # transform the date
     dataCovid$jour <- parse_date_time(dataCovid$jour, orders = "ymd")
     dataCovid
     
   })
   
   output$distPlot <- renderPlot({
-    # parametres
     
+    # parametres
     variable = input$variable
     cumul = input$cumul
     region = input$region
     
+    # get data
     dataCovid <- dataCovidreact()
     
-    # variable = "Nombre de décès"
-    # cumul = "non"
-    # region = "France"
-    
-    # Data
-    
+    # Data for 
     variables = c("hosp", "rea",  "rad",  "dc")
     
     FranceMetro = c("01",  "02",  "03",  "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "21", "22", "23", "24", "25", "26", "27", "28", 
@@ -88,17 +89,16 @@ server <- function(input, output) {
     label = variable
     
     variable <- switch (variable,
-                        "Nombre de patients hospitalisés" = "hosp",
-                        "Nombre de patients en réanimation" = "rea",
-                        "Nombre de retour à domicile" = "rad",
-                        "Nombre de décès" = "dc"
+                        "nombre de patients hospitalisés" = "hosp",
+                        "nombre de patients en réanimation" = "rea",
+                        "nombre de retour à domicile" = "rad",
+                        "nombre de décès" = "dc"
     )
     
-    label = paste (label, 
-                   switch (cumul,
-                           non = "journalier",
-                           oui = "cumulé")
-    )
+    label = paste(switch (cumul,
+                           non = "Variation journalière du",
+                           oui = "Cumul du")
+                  , label)
     
     if (region != "France"){
       dataCovid <- filter(dataCovid, as.character(dep) %in% filterParam)
@@ -115,11 +115,18 @@ server <- function(input, output) {
     
     lines <- deadPerDay$jour[deadPerDay$joursemaine == "lundi"]
     
+    if (min(deadPerDay[ , variable]) < 0){
+      minValue <- min(deadPerDay[ , variable])
+    } else {
+      minValue <- 0
+    } 
+    
+    
     ggplot(deadPerDay, aes_string(x = "jour", y = variable)) +
       geom_vline(xintercept = lines, linetype="dotted", 
-                 size=1) +
+                 size = 1) +
       geom_point() +
-      ylim(0,NA) +
+      ylim(minValue, NA) +
       geom_smooth() +
       ylab(label) 
   })
