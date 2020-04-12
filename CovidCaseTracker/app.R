@@ -55,6 +55,7 @@ server <- function(input, output) {
     
     # transform the date
     dataCovid$jour <- parse_date_time(dataCovid$jour, orders = "ymd")
+    dataCovid$semaine <- isoweek(dataCovid$jour)
     dataCovid
     
   })
@@ -69,7 +70,7 @@ server <- function(input, output) {
     # get data
     dataCovid <- dataCovidreact()
     
-    # Data for 
+    # complémentary code for labelling and filtering
     variables = c("hosp", "rea",  "rad",  "dc")
     
     FranceMetro = c("01",  "02",  "03",  "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "21", "22", "23", "24", "25", "26", "27", "28", 
@@ -86,8 +87,16 @@ server <- function(input, output) {
                            "Loire atlantique" = "44",
                            "Côte d'armor" = "22")
     
+    
+    # make label (concatenate variable and cumul)
     label = variable
     
+    label = paste(switch (cumul,
+                           non = "Variation journalière du",
+                           oui = "Cumul du")
+                  , label)
+    
+    # change variable to match dataset names
     variable <- switch (variable,
                         "nombre de patients hospitalisés" = "hosp",
                         "nombre de patients en réanimation" = "rea",
@@ -95,39 +104,42 @@ server <- function(input, output) {
                         "nombre de décès" = "dc"
     )
     
-    label = paste(switch (cumul,
-                           non = "Variation journalière du",
-                           oui = "Cumul du")
-                  , label)
-    
+    # geograhic filter 
     if (region != "France"){
       dataCovid <- filter(dataCovid, as.character(dep) %in% filterParam)
     }
     
-    deadPerDay <- dataCovid %>%
-      group_by(jour) %>%
-      summarise_at( .vars = variables, .funs = sum)
+    # sum of geographic information
+    dataSummarisedPerDay <- dataCovid %>%
+      group_by(jour, semaine) %>%
+      summarise_at(.vars = variables, .funs = sum)
     
+    # calculate daily variation
     if (cumul == "non")
-      deadPerDay[ , variable] <-  deadPerDay[ , variable] - c(0, unlist(deadPerDay[1:(nrow(deadPerDay)-1) , variable]))
+      dataSummarisedPerDay[ , variable] <-  dataSummarisedPerDay[ , variable] - c(0, unlist(dataSummarisedPerDay[1:(nrow(dataSummarisedPerDay)-1) , variable]))
     
-    deadPerDay$joursemaine <- weekdays(deadPerDay$jour)
-    
-    lines <- deadPerDay$jour[deadPerDay$joursemaine == "lundi"]
-    
-    if (min(deadPerDay[ , variable]) < 0){
-      minValue <- min(deadPerDay[ , variable])
+    # allow negative values but lock the 0 to make clear representations if values are all positives
+    if (min(dataSummarisedPerDay[ , variable]) < 0){
+      minValue <- min(dataSummarisedPerDay[ , variable])
     } else {
       minValue <- 0
     } 
     
+    # calculate mean per week
+    dataSummarisedPerWeek <- dataSummarisedPerDay %>%
+      group_by(semaine)%>%
+      summarise_at(.vars = variables, .funs = mean)
     
-    ggplot(deadPerDay, aes_string(x = "jour", y = variable)) +
-      geom_vline(xintercept = lines, linetype="dotted", 
-                 size = 1) +
+    # join datasets
+    dataSummarisedPerDay <- inner_join(dataSummarisedPerDay, dataSummarisedPerWeek,"semaine")
+    
+    # plot results
+    ggplot(dataSummarisedPerDay, aes_string(x = "jour", y = paste0(variable,".x"))) +
+      geom_hline(yintercept = 0) +
+      geom_smooth() +
+      geom_line(aes_string(y = paste0(variable,".y"), group = "semaine"))+
       geom_point() +
       ylim(minValue, NA) +
-      geom_smooth() +
       ylab(label) 
   })
 }
